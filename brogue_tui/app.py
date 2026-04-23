@@ -13,6 +13,7 @@ Brogue's 3-line message region) and an inventory overlay.
 
 from __future__ import annotations
 
+from rich.color import Color
 from rich.segment import Segment
 from rich.style import Style
 from textual import events
@@ -93,6 +94,13 @@ class MapView(ScrollView):
         self._blank = Style(color="rgb(200,200,200)", bgcolor="rgb(0,0,0)")
         # Virtual size is fixed to the engine grid.
         self.virtual_size = Size(engine.cols, engine.rows)
+        # Style cache keyed on (fg_rgb_tuple, bg_rgb_tuple). Brogue's
+        # palette is effectively continuous in 0..100 per channel, but
+        # the flame-anim + menu screen only explores ~200 distinct
+        # (fg,bg) pairs, and an in-game dungeon is narrower still — so
+        # this cache has huge hit rate after the first second.
+        self._style_cache: dict[tuple[tuple[int, int, int],
+                                      tuple[int, int, int]], Style] = {}
 
     def on_mount(self) -> None:
         # Poll the engine serial at 30 Hz. If it's bumped, repaint.
@@ -126,13 +134,18 @@ class MapView(ScrollView):
         # Brogue's long status rows where colour barely changes.
         cur_style: Style | None = None
         cur_text: list[str] = []
+        cache = self._style_cache
         for cell in row_cells:
             fg = _rgb(cell.fr, cell.fg, cell.fb)
             bg = _rgb(cell.br, cell.bg, cell.bb)
-            style = Style(
-                color=f"rgb({fg[0]},{fg[1]},{fg[2]})",
-                bgcolor=f"rgb({bg[0]},{bg[1]},{bg[2]})",
-            )
+            key = (fg, bg)
+            style = cache.get(key)
+            if style is None:
+                style = Style(
+                    color=Color.from_rgb(fg[0], fg[1], fg[2]),
+                    bgcolor=Color.from_rgb(bg[0], bg[1], bg[2]),
+                )
+                cache[key] = style
             # Translate Brogue's codepoint to a character. Codepoints
             # outside BMP should never appear (Brogue uses a small glyph
             # table), but be defensive.
@@ -140,7 +153,7 @@ class MapView(ScrollView):
                 ch = chr(cell.glyph) if cell.glyph else " "
             except (ValueError, OverflowError):
                 ch = "?"
-            if style == cur_style:
+            if style is cur_style:
                 cur_text.append(ch)
             else:
                 if cur_style is not None:

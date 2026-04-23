@@ -7,6 +7,13 @@ you can diff the broken render against the last green one).
 Run with `make test` (all) or `make test-only PAT=<substring>` (filter
 by scenario name).
 
+**Process isolation.** Each scenario runs in its own subprocess. The
+Brogue library carries C-level globals (plot callback, pause callback,
+currentConsole) and its worker thread is blocking + daemon, so a
+previous scenario's thread can clobber a new one's callbacks if they
+share an interpreter. Fork-per-scenario is the clean fix — costs ~0.3 s
+of process startup per test, well worth the isolation.
+
 Gate for Stage 4: every scenario in SCENARIOS below green. That's the
 baseline — every later stage has to keep them green.
 """
@@ -14,9 +21,12 @@ baseline — every later stage has to keep them green.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import subprocess
 import sys
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -199,13 +209,16 @@ async def mouse_click_forwards_to_engine(app: BrogueApp, pilot) -> None:
 
 async def engine_stops_cleanly(app: BrogueApp, pilot) -> None:
     """Shutting down the engine joins the worker thread within a bounded
-    wait. Regression guard — an early bug had the worker spinning on a
-    blocked queue forever."""
-    # Make sure the game is up and plotting first.
+    wait. Regression guard — the autopilot (stream quit/escape keys at
+    a 10 Hz tempo) should unwind the title menu within a few seconds."""
     await _wait_for_serial(app, 200)
-    app.engine.stop(timeout=2.0)
-    # `is_running` flips to False when the worker exits.
-    assert not app.engine.is_running(), "engine did not shut down"
+    # The autopilot needs room — title-menu 'q' is one hotkey lookup
+    # per scheduled pulse, one pulse every 100 ms. Allow 5 s.
+    app.engine.stop(timeout=5.0)
+    assert not app.engine.is_running(), (
+        f"engine did not shut down within 5 s "
+        f"(serial={app.engine.serial})"
+    )
 
 
 SCENARIOS: list[Scenario] = [
@@ -222,7 +235,11 @@ SCENARIOS: list[Scenario] = [
 
 # --- runner --------------------------------------------------------------
 
-async def _run_one(scn: Scenario) -> tuple[str, bool, str]:
+async def _run_one_inproc(scn_name: str) -> tuple[str, bool, str]:
+    """In-process scenario execution. Called from the child process."""
+    scn = next((s for s in SCENARIOS if s.name == scn_name), None)
+    if scn is None:
+        return (scn_name, False, f"unknown scenario: {scn_name}")
     app = BrogueApp(seed=1)
     try:
         async with app.run_test(size=(180, 50)) as pilot:
@@ -239,17 +256,41 @@ async def _run_one(scn: Scenario) -> tuple[str, bool, str]:
                     app.save_screenshot(str(OUT_DIR / f"{scn.name}.ERROR.svg"))
                 except Exception:
                     pass
-                return (scn.name, False, f"{type(e).__name__}: {e}")
+                tb = traceback.format_exc().splitlines()[-1]
+                return (scn.name, False, tb)
     finally:
-        # Hard-stop the engine whichever thread we're on, so run_test
-        # cleanup doesn't leak the daemon worker across scenarios.
         try:
             app.engine.stop(timeout=1.0)
         except Exception:
             pass
 
 
-async def run_all(pattern: str | None = None) -> int:
+def _run_one_subprocess(scn: Scenario) -> tuple[str, bool, str]:
+    """Run scenario in a child `python -m tests.qa --child <name>`."""
+    env = {**os.environ, "TEXTUAL": os.environ.get("TEXTUAL", "")}
+    try:
+        out = subprocess.run(
+            [sys.executable, "-m", "tests.qa", "--child", scn.name],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            env=env,
+            capture_output=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return (scn.name, False, "scenario timed out after 30s")
+    last = out.stdout.strip().splitlines()[-1] if out.stdout.strip() else ""
+    try:
+        res = json.loads(last)
+        return (res["name"], res["ok"], res["detail"])
+    except Exception:
+        return (
+            scn.name, False,
+            f"child exited with rc={out.returncode}, "
+            f"stdout={out.stdout[-300:]!r}, stderr={out.stderr[-300:]!r}",
+        )
+
+
+def run_all(pattern: str | None = None) -> int:
     selected = [s for s in SCENARIOS if pattern is None or pattern in s.name]
     if not selected:
         print(f"no scenarios matched pattern {pattern!r}")
@@ -257,7 +298,7 @@ async def run_all(pattern: str | None = None) -> int:
     results = []
     for scn in selected:
         print(f"  ▸ {scn.name} …", flush=True)
-        name, ok, detail = await _run_one(scn)
+        name, ok, detail = _run_one_subprocess(scn)
         status = "PASS" if ok else "FAIL"
         print(f"    {status} — {name}  {detail}", flush=True)
         results.append((name, ok, detail))
@@ -273,10 +314,17 @@ async def run_all(pattern: str | None = None) -> int:
 
 
 def main() -> int:
-    pattern = sys.argv[1] if len(sys.argv) > 1 else None
-    # Reduce Textual / asyncio log noise so test output is readable.
+    args = sys.argv[1:]
     os.environ.setdefault("TEXTUAL", "")
-    return asyncio.run(run_all(pattern))
+    # Child mode — one scenario → JSON result on stdout → exit.
+    if args and args[0] == "--child":
+        scn_name = args[1]
+        name, ok, detail = asyncio.run(_run_one_inproc(scn_name))
+        print(json.dumps({"name": name, "ok": ok, "detail": detail}))
+        return 0 if ok else 1
+    # Parent / driver mode.
+    pattern = args[0] if args else None
+    return run_all(pattern)
 
 
 if __name__ == "__main__":

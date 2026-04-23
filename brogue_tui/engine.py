@@ -274,14 +274,19 @@ class BrogueEngine:
     def _on_pause_ms(self, milliseconds: int) -> int:
         # Return 1 if an event is available within `milliseconds`.
         # queue.Queue doesn't expose a "wait-but-don't-consume" primitive;
-        # easiest reliable option is to peek on the internal deque.
+        # easiest reliable option is to peek by checking empty().
+        # When _die is set we always return 1 so Brogue moves on to
+        # nextBrogueEvent — our _on_next_event then feeds the quit
+        # autopilot instead of blocking.
+        if self._die:
+            return 1
         if milliseconds <= 0:
             return 1 if not self._events.empty() else 0
         # Spin-poll the queue — a .get(timeout=) would consume the event.
         import time
         deadline = time.monotonic() + milliseconds / 1000.0
         while time.monotonic() < deadline:
-            if not self._events.empty():
+            if not self._events.empty() or self._die:
                 return 1
             time.sleep(0.01)
         return 0
