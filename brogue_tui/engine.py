@@ -221,6 +221,9 @@ class BrogueEngine:
 
         self._thread: threading.Thread | None = None
         self._running = False
+        # Flag set by stop() to make _on_next_event feed ESC autopilot.
+        self._die = False
+        self._die_idx = 0
         # Game-over flag — set from py_notifyEvent when Brogue sends a
         # GAMEOVER_* notification.
         self.game_over = False
@@ -286,7 +289,25 @@ class BrogueEngine:
     def _on_next_event(self, et_ptr, p1_ptr, p2_ptr, ctrl_ptr, shift_ptr,
                        text_input):
         # Block until an event is posted from the Textual side.
-        ev = self._events.get()
+        # If _die is set (via stop()), cycle through a small alphabet of
+        # escape hatches: 'q' quits the title menu, ESCAPE + 'y' escapes
+        # most in-game prompts and confirms a quit dialog, RETURN
+        # acknowledges an "OK" button. This rotates through them so
+        # whichever screen the engine lands on, one press will match.
+        _autopilot = (
+            ord("q"), ESCAPE_KEY, ord("Q"), ord("y"),
+            RETURN_KEY, ESCAPE_KEY, ord("n"),
+        )
+        while True:
+            try:
+                ev = self._events.get(timeout=0.1)
+                break
+            except queue.Empty:
+                if self._die:
+                    code = _autopilot[self._die_idx % len(_autopilot)]
+                    self._die_idx += 1
+                    ev = RogueEvent(event_type=KEYSTROKE, param1=code)
+                    break
         et_ptr[0] = ev.event_type
         p1_ptr[0] = ev.param1
         p2_ptr[0] = ev.param2
@@ -333,13 +354,25 @@ class BrogueEngine:
         self._thread.start()
 
     def stop(self, timeout: float = 2.0) -> None:
-        """Tell Brogue to quit and wait for the worker thread to die."""
+        """Best-effort shutdown.
+
+        Brogue's multi-screen menu/dialog stack has no single "exit now"
+        path — titleMenu() waits for a button hotkey, an in-game prompt
+        waits for y/n, etc. We set a `_die` flag that flips the
+        next-event callback into "stream ESCAPE forever" mode, which
+        unwinds most screen stacks. On top of that we push a seeded
+        burst of (ESC / y / Q / q / Return) on the off-chance the stack
+        is at a specific prompt needing a specific response.
+
+        The worker thread is daemonic, so whether or not we successfully
+        join within `timeout`, the process can still exit cleanly when
+        Python shuts down."""
         if not self._running:
             return
-        # Queue an ESCAPE; Brogue's main menu pops on escape, another
-        # escape exits. Queue two just in case.
-        for _ in range(3):
-            self.post_event(RogueEvent(event_type=KEYSTROKE, param1=ESCAPE_KEY))
+        self._die = True
+        for code in (ESCAPE_KEY, ord("y"), ord("n"),
+                     ord("Q"), ord("q"), RETURN_KEY, ESCAPE_KEY):
+            self.post_event(RogueEvent(event_type=KEYSTROKE, param1=code))
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
