@@ -19,10 +19,11 @@ from rich.style import Style
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.geometry import Region, Size
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
-from textual.widgets import Footer, Header, RichLog
+from textual.widgets import Footer, Header, Static
 
 from .engine import (
     BrogueEngine,
@@ -32,6 +33,7 @@ from .engine import (
     TAB_KEY,
     DELETE_KEY,
 )
+from .screens import HelpScreen
 
 
 # Brogue RGB components are 0..100; Textual / Rich want 0..255. Clamp + scale.
@@ -171,6 +173,58 @@ class MapView(ScrollView):
         return strip.crop(scroll_x, scroll_x + self.size.width)
 
 
+class Sidebar(Static):
+    """Engine-state sidebar — Textual-side chrome Brogue doesn't have.
+
+    Brogue paints its own sidebar (cols 0-19 of the grid) with HP /
+    status / conditions. The panel here is orthogonal: debug + session
+    info (seed, plot serial, game-over state) that's useful during
+    development and when driving the engine via the agent API. We
+    deliberately don't duplicate Brogue's in-game stats — they're
+    already on the main grid."""
+
+    DEFAULT_CSS = """
+    Sidebar {
+        width: 28;
+        height: 100%;
+        padding: 1;
+        border: round $primary;
+        background: $surface;
+    }
+    """
+
+    def __init__(self, engine: BrogueEngine, **kw) -> None:
+        super().__init__("", **kw)
+        self.engine = engine
+
+    def on_mount(self) -> None:
+        self.border_title = "session"
+        self.set_interval(0.5, self._refresh_panel)
+        self._refresh_panel()
+
+    def _refresh_panel(self) -> None:
+        e = self.engine
+        lines = [
+            "[bold cyan]brogue-tui[/bold cyan]",
+            "",
+            f"[dim]seed[/dim]       {e.seed}",
+            f"[dim]depth[/dim]      {e.depth_level}",
+            f"[dim]deepest[/dim]    {e.deepest_level}",
+            f"[dim]gold[/dim]       {e.gold}",
+            "",
+            f"[dim]serial[/dim]     {e.serial}",
+            f"[dim]running[/dim]    {'yes' if e.is_running() else 'no'}",
+        ]
+        if e.game_over:
+            lines.append("")
+            reason = e.game_over_reason or "(ended)"
+            lines.append(f"[bold red]game over[/bold red]: {reason[:20]}")
+        lines.append("")
+        lines.append("[dim]ctrl+h[/dim] help")
+        lines.append("[dim]ctrl+q[/dim] quit shell")
+        self.update("\n".join(lines))
+
+
 class BrogueApp(App):
     """Main Textual app.
 
@@ -192,26 +246,30 @@ class BrogueApp(App):
         # twice to quit". Users expect Ctrl+C to bail.
         Binding("ctrl+c", "quit", "Quit", priority=True, show=False),
         Binding("ctrl+q", "quit", "Quit", show=True),
+        # ctrl+h is the shell-level help. Plain '?' is Brogue's, so we
+        # don't steal it — the chord is deliberately out of the way.
+        Binding("ctrl+h", "show_help", "Shell Help", show=True),
     ]
 
     TITLE = "brogue-tui"
     SUB_TITLE = "Textual re-shell over BrogueCE"
 
-    def __init__(self, *, seed: int = 0, wizard: bool = False) -> None:
+    def __init__(self, *, seed: int = 0, wizard: bool = False,
+                 agent_port: int | None = None) -> None:
         super().__init__()
         self.engine = BrogueEngine(
             seed=seed, wizard=wizard, start_new_game=False,
         )
-        # Ring buffer of messages — Brogue's 3-line message area scrolls
-        # fast; we mirror them into a RichLog so the player can scroll
-        # back. Populated in Stage 6 (Phase B) once we hook into the log.
-        self._log: RichLog | None = None
+        self.agent_port = agent_port
+        self._agent_runner = None
 
     # --- layout ------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield MapView(self.engine, id="map")
+        with Horizontal(id="body"):
+            yield MapView(self.engine, id="map")
+            yield Sidebar(self.engine, id="sidebar")
         yield Footer()
 
     # --- lifecycle ---------------------------------------------------------
@@ -222,6 +280,21 @@ class BrogueApp(App):
         # any default footer scroll logic.
         map_view = self.query_one("#map", MapView)
         map_view.focus()
+        if self.agent_port is not None:
+            # Start the agent API on the Textual asyncio loop. Failure
+            # to bind (port in use etc.) is logged to the Footer but
+            # doesn't prevent the game from running.
+            self.run_worker(self._start_agent(), exclusive=True)
+
+    async def _start_agent(self) -> None:
+        from . import agent_api
+        try:
+            self._agent_runner, _site = await agent_api.serve(
+                self.engine, port=self.agent_port,
+            )
+            self.notify(f"agent API listening on 127.0.0.1:{self.agent_port}")
+        except OSError as e:
+            self.notify(f"agent API failed to bind: {e}", severity="warning")
 
     def on_unmount(self) -> None:
         # Tell Brogue to quit cleanly; worker thread exits and the lib
@@ -230,6 +303,15 @@ class BrogueApp(App):
             self.engine.stop(timeout=1.5)
         except Exception:
             pass
+        if self._agent_runner is not None:
+            try:
+                self.run_worker(self._agent_runner.cleanup(), exclusive=True)
+            except Exception:
+                pass
+
+    def action_show_help(self) -> None:
+        """Ctrl+H — open the shell help modal."""
+        self.push_screen(HelpScreen())
 
     # --- input forwarding --------------------------------------------------
 
@@ -278,6 +360,7 @@ class BrogueApp(App):
             event.stop()
 
 
-def run(*, seed: int = 0, wizard: bool = False) -> None:
+def run(*, seed: int = 0, wizard: bool = False,
+        agent_port: int | None = None) -> None:
     """Entry point. `brogue.py` calls this."""
-    BrogueApp(seed=seed, wizard=wizard).run()
+    BrogueApp(seed=seed, wizard=wizard, agent_port=agent_port).run()

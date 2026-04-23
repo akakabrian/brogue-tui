@@ -47,14 +47,23 @@ venv: .venv/bin/python
 run: venv $(LIB)
 	.venv/bin/python brogue.py
 
-# Full test suite — TUI scenarios via Pilot + perf bench.
+# Full test suite — TUI scenarios via Pilot + agent API + perf bench.
 test: venv $(LIB)
 	.venv/bin/python -m tests.qa
+	.venv/bin/python -m tests.api_qa
 	.venv/bin/python -m tests.perf
 
 # Filtered subset. Usage: make test-only PAT=cursor
 test-only: venv $(LIB)
 	.venv/bin/python -m tests.qa $(PAT)
+
+# Agent-API-only tests (fast — ~1 s).
+test-api: venv $(LIB)
+	.venv/bin/python -m tests.api_qa
+
+# Perf baseline — eyeball the numbers in CI / before tagging a release.
+test-perf: venv $(LIB)
+	.venv/bin/python -m tests.perf
 
 clean:
 	rm -f $(LIB)

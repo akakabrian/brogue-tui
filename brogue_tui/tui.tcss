@@ -18,14 +18,26 @@ Footer {
     background: #1a1a1a;
 }
 
+#body {
+    width: 100%;
+    height: 1fr;
+}
+
 #map {
-    width: 100;
+    /* Brogue's native grid is 100×34. We reserve exactly that much
+     * space so the grid lines up on the cell boundary — any extra
+     * padding and the side-panel widgets shift the centre column. */
+    width: 102;
     height: 34;
     background: #000;
     color: #fff;
-    /* Brogue paints its own border inside the grid; we don't need one. */
     border: none;
-    /* Center the 100×34 grid in wider terminals so it doesn't glue to
-     * the left edge. ScrollView handles smaller terminals by scrolling. */
     margin: 0 1;
+}
+
+#sidebar {
+    /* Sidebar sits to the right of the map. On a narrower terminal
+     * Textual will wrap it under the map; the default flex sizing
+     * handles that OK without custom media queries. */
+    width: 28;
 }

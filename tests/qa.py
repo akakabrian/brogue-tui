@@ -34,7 +34,7 @@ from typing import Awaitable, Callable
 # Make `brogue_tui` importable when run via `python -m tests.qa`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from brogue_tui.app import BrogueApp, MapView  # noqa: E402
+from brogue_tui.app import BrogueApp, MapView, Sidebar  # noqa: E402
 from brogue_tui.engine import (  # noqa: E402
     BrogueEngine,
     Cell,
@@ -42,6 +42,7 @@ from brogue_tui.engine import (  # noqa: E402
     RETURN_KEY,
     RogueEvent,
 )
+from brogue_tui.screens import HelpScreen  # noqa: E402
 
 
 OUT_DIR = Path(__file__).resolve().parent / "out"
@@ -207,6 +208,48 @@ async def mouse_click_forwards_to_engine(app: BrogueApp, pilot) -> None:
     assert calls, "on_click did not forward any mouse event to the engine"
 
 
+async def sidebar_shows_stats(app: BrogueApp, pilot) -> None:
+    """Sidebar refreshes session info from the engine every 0.5 s."""
+    await _wait_for_serial(app, 500)
+    # Wait past the first sidebar refresh.
+    await pilot.pause(0.7)
+    sb = app.query_one("#sidebar", Sidebar)
+    # Textual's Static stores the last .update() content in ._content
+    # (used by render()). Assert on that directly — any public-API
+    # alternative would require pulling out the Rich console.
+    content = str(getattr(sb, "_content", "")) or str(sb.render())
+    lower = content.lower()
+    assert "brogue-tui" in lower, (
+        f"sidebar didn't render branding: {content[:200]!r}"
+    )
+    assert "seed" in lower, f"sidebar missing seed: {content[:200]!r}"
+    assert "serial" in lower, (
+        f"sidebar missing serial field: {content[:200]!r}"
+    )
+
+
+async def help_screen_opens_and_closes(app: BrogueApp, pilot) -> None:
+    """Ctrl+H shows the help modal; Escape dismisses it."""
+    await _wait_for_serial(app, 200)
+    await pilot.pause(0.1)
+    # Trigger via the action — keybindings like ctrl+h aren't always
+    # reliable under Pilot (keyboard mapping leaks), and we want the
+    # test to exercise our action handler either way.
+    app.action_show_help()
+    await pilot.pause(0.1)
+    help_found = any(
+        isinstance(scr, HelpScreen) for scr in app.screen_stack
+    )
+    assert help_found, "HelpScreen was not pushed"
+    # Dismiss via escape — HelpScreen has a priority binding.
+    await pilot.press("escape")
+    await pilot.pause(0.1)
+    still_open = any(
+        isinstance(scr, HelpScreen) for scr in app.screen_stack
+    )
+    assert not still_open, "HelpScreen didn't dismiss on escape"
+
+
 async def engine_stops_cleanly(app: BrogueApp, pilot) -> None:
     """Shutting down the engine joins the worker thread within a bounded
     wait. Regression guard — the autopilot (stream quit/escape keys at
@@ -229,6 +272,8 @@ SCENARIOS: list[Scenario] = [
     Scenario("key_press_reaches_engine", key_press_reaches_engine),
     Scenario("mouse_click_forwards_to_engine", mouse_click_forwards_to_engine),
     Scenario("new_game_starts", new_game_starts),
+    Scenario("sidebar_shows_stats", sidebar_shows_stats),
+    Scenario("help_screen_opens_and_closes", help_screen_opens_and_closes),
     Scenario("engine_stops_cleanly", engine_stops_cleanly),
 ]
 

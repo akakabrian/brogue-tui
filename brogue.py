@@ -26,10 +26,14 @@ def main() -> int:
         "--wizard", action="store_true",
         help="enable wizard mode (debugging helpers; no highscore)",
     )
+    parser.add_argument(
+        "--agent", type=int, default=None, metavar="PORT",
+        help="start the REST agent API on 127.0.0.1:PORT (default off)",
+    )
     args = parser.parse_args()
 
     from brogue_tui.app import run
-    run(seed=args.seed, wizard=args.wizard)
+    run(seed=args.seed, wizard=args.wizard, agent_port=args.agent)
     return 0
 
 

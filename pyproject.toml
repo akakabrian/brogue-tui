@@ -7,6 +7,9 @@ dependencies = [
     # Cap textual at the major we've tested on. The widget render
     # contract changes in spots with majors (see issue #2 on simcity-tui).
     "textual>=0.80,<10",
+    # Agent REST API (opt-in via --agent flag). aiohttp shares Textual's
+    # asyncio loop — no threading needed.
+    "aiohttp>=3.9,<4",
 ]
 
 [build-system]
