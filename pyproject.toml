@@ -1,0 +1,20 @@
+[project]
+name = "brogue-tui"
+version = "0.1.0"
+description = "Textual re-shell over BrogueCE (terminal-native roguelike)"
+requires-python = ">=3.10"
+dependencies = [
+    # Cap textual at the major we've tested on. The widget render
+    # contract changes in spots with majors (see issue #2 on simcity-tui).
+    "textual>=0.80,<10",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["brogue_tui"]
+
+[tool.setuptools.package-data]
+brogue_tui = ["tui.tcss"]

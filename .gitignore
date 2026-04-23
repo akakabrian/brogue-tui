@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+**/objs/
+*.so
+*.dylib
+*.dll
+/vendor/BrogueCE/
+tests/out/
+.DS_Store
