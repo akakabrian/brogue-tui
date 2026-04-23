@@ -1,0 +1,50 @@
+ ⭘                                                       brogue-tui — Textual re-shell over BrogueCE
+                                                                                                        ╭─ session ────────────────╮
+                                                                                                        │                          │
+                                                                                                        │ brogue-tui               │
+                                                                                                        │                          │
+                                                                                                        │ seed       0             │
+                                                                                                        │ depth      0             │
+                                                                                                        │ deepest    0             │
+                                                                                                        │ gold       0             │
+                                                                                                        │                          │
+                                                                                                        │ serial     13450         │
+                                                                                                        │ running    yes           │
+                                                                                                        │                          │
+                                                                                                        │ ctrl+h help              │
+                                                                                                        │ ctrl+q quit shell        │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                      New Game          │                          │
+                                                                                                        │                          │
+                                                                                  🞀     Play            │                          │
+                                                                                                        │                          │
+                                                                                  🞀     View            │                          │
+                                                                                                        │                          │
+                                                                                        Quit            │                          │
+                                                                                                        │                          │
+                                                                                            CE 1.15.1   │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        │                          │
+                                                                                                        ╰──────────────────────────╯
+ ^q Quit  ^h Shell Help                                                                                                                             ▏^p palette
