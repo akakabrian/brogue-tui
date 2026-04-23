@@ -19,6 +19,7 @@ from __future__ import annotations
 import ctypes
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -283,7 +284,6 @@ class BrogueEngine:
         if milliseconds <= 0:
             return 1 if not self._events.empty() else 0
         # Spin-poll the queue — a .get(timeout=) would consume the event.
-        import time
         deadline = time.monotonic() + milliseconds / 1000.0
         while time.monotonic() < deadline:
             if not self._events.empty() or self._die:
@@ -380,6 +380,11 @@ class BrogueEngine:
             self.post_event(RogueEvent(event_type=KEYSTROKE, param1=code))
         if self._thread is not None:
             self._thread.join(timeout=timeout)
+            if not self._thread.is_alive():
+                # Worker exited but _target may not have cleared the flag
+                # yet (race window); clear it here so is_running() is
+                # honest to callers that poll after stop().
+                self._running = False
 
     # --- public API --------------------------------------------------------
 

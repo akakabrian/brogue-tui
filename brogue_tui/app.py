@@ -288,11 +288,13 @@ class BrogueApp(App):
 
     async def _start_agent(self) -> None:
         from . import agent_api
+        assert self.agent_port is not None  # guarded by on_mount
+        port = self.agent_port
         try:
             self._agent_runner, _site = await agent_api.serve(
-                self.engine, port=self.agent_port,
+                self.engine, port=port,
             )
-            self.notify(f"agent API listening on 127.0.0.1:{self.agent_port}")
+            self.notify(f"agent API listening on 127.0.0.1:{port}")
         except OSError as e:
             self.notify(f"agent API failed to bind: {e}", severity="warning")
 

@@ -65,5 +65,10 @@ test-api: venv $(LIB)
 test-perf: venv $(LIB)
 	.venv/bin/python -m tests.perf
 
+# Real-binary playtest via pexpect — title → move → help → quit.
+# Produces tests/out/playtest_latest.svg as a visual smoke artefact.
+playtest: venv $(LIB)
+	.venv/bin/python -m tests.playtest
+
 clean:
 	rm -f $(LIB)
